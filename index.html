@@ -362,8 +362,21 @@ const DEF=[
 
 function getMonthData(m){
   const data=load();
-  if(!data.months[m]) data.months[m]={categories:DEF.map((c,i)=>({...c,subs:[...c.subs],color:COLORS[i%COLORS.length]})),income:[],expenses:[]};
+  if(!data.months[m]){
+    // Try to copy categories from previous month
+    const[yr,mo]=m.split('-').map(Number);
+    let pm=mo-1,py=yr;if(pm===0){pm=12;py--;}
+    const pk=`${py}-${String(pm).padStart(2,'0')}`;
+    const prevCats=data.months[pk]?data.months[pk].categories.map(c=>({...c,subs:[...(c.subs||[])]})):DEF.map((c,i)=>({...c,subs:[...c.subs],color:COLORS[i%COLORS.length]}));
+    data.months[m]={categories:prevCats,income:[],expenses:[]};
+  }
   return data;
+}
+
+function updateAlloc(ci,val){
+  const data=getMonthData(curM);
+  data.months[curM].categories[ci].alloc=parseFloat(val)||0;
+  save(data);render();
 }
 
 function getCarryForward(m){
@@ -526,25 +539,85 @@ function renderBudget(mo,avail){
     const pct=c.alloc>0?Math.min(100,Math.round(spent/c.alloc*100)):0;
     const barColor=pct>=100?'#EF4444':pct>=75?'#F59E0B':c.color;
     const leftColor=left<0?'var(--red)':left<c.alloc*0.2?'var(--amber)':'var(--green)';
-    const el=document.createElement('div');
-    el.innerHTML=`<div class="list-item">
-      <div class="icon-box" style="background:${getIconBg(c.name)}">${getIcon(c.name)}</div>
-      <div class="item-info">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="item-name">${c.name}</div>
-          <div style="font-size:11px;font-weight:600;color:${leftColor}">${fmt(left)} left</div>
-        </div>
-        <div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${barColor}"></div></div>
-        <div class="prog-labels"><div class="prog-lbl">${fmt(spent)} spent</div><div class="prog-lbl">${fmt(c.alloc)} budget</div></div>
-      </div>
-      <button class="del" onclick="delCat(${ci})">×</button></div>`;
+
+    // Wrapper
+    const wrap=document.createElement('div');
+    wrap.style.cssText='padding:10px 0;border-bottom:1px solid #F9FAFB;';
+
+    // Main row
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:flex-start;gap:10px;';
+
+    // Icon
+    const iconBox=document.createElement('div');
+    iconBox.className='icon-box';
+    iconBox.style.cssText=`background:${getIconBg(c.name)};margin-top:2px;flex-shrink:0`;
+    iconBox.textContent=getIcon(c.name);
+
+    // Info
+    const info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0;';
+
+    // Name + left row
+    const nameRow=document.createElement('div');
+    nameRow.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;';
+    const nameEl=document.createElement('div');
+    nameEl.className='item-name';nameEl.textContent=c.name;
+    const leftEl=document.createElement('div');
+    leftEl.style.cssText=`font-size:11px;font-weight:600;color:${leftColor};`;
+    leftEl.textContent=fmt(left)+' left';
+    nameRow.appendChild(nameEl);nameRow.appendChild(leftEl);
+
+    // Alloc edit row
+    const allocRow=document.createElement('div');
+    allocRow.style.cssText='display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+    const allocLbl=document.createElement('span');
+    allocLbl.style.cssText='font-size:10px;color:var(--text3);white-space:nowrap;';
+    allocLbl.textContent='Budget ₹';
+    // *** The editable input ***
+    const inp=document.createElement('input');
+    inp.type='number';inp.value=c.alloc;inp.min=0;
+    inp.style.cssText='width:100px;font-size:13px;font-weight:600;padding:5px 9px;border:1.5px solid #DDD6FE;border-radius:8px;color:var(--purple);background:var(--purple-light);outline:none;font-family:inherit;';
+    inp.addEventListener('focus',function(){this.select();});
+    inp.addEventListener('input',function(){
+      const data=getMonthData(curM);
+      data.months[curM].categories[ci].alloc=parseFloat(this.value)||0;
+      save(data);render();
+    });
+    const spentLbl=document.createElement('span');
+    spentLbl.style.cssText='font-size:10px;color:var(--text3);white-space:nowrap;';
+    spentLbl.textContent=`Spent ${fmt(spent)}`;
+    allocRow.appendChild(allocLbl);allocRow.appendChild(inp);allocRow.appendChild(spentLbl);
+
+    // Progress bar
+    const progTrack=document.createElement('div');
+    progTrack.className='prog-track';
+    const progFill=document.createElement('div');
+    progFill.className='prog-fill';
+    progFill.style.cssText=`width:${pct}%;background:${barColor};`;
+    progTrack.appendChild(progFill);
+
+    info.appendChild(nameRow);info.appendChild(allocRow);info.appendChild(progTrack);
+
+    // Delete button
+    const delBtn=document.createElement('button');
+    delBtn.className='del';delBtn.textContent='×';delBtn.style.marginTop='2px';
+    delBtn.onclick=()=>delCat(ci);
+
+    row.appendChild(iconBox);row.appendChild(info);row.appendChild(delBtn);
+    wrap.appendChild(row);
+
+    // Petrol subs
     if(c.name==='Petrol'&&c.subs&&c.subs.length>0){
       c.subs.forEach(sub=>{
         const ss=spentBy(mo,c.name,sub);
-        el.innerHTML+=`<div class="sub-row"><div class="sub-dot" style="background:${c.color}"></div><div class="sub-name">${sub}</div><div class="sub-val">${fmt(ss)} spent</div></div>`;
+        const subRow=document.createElement('div');
+        subRow.className='sub-row';
+        subRow.innerHTML=`<div class="sub-dot" style="background:${c.color}"></div><div class="sub-name">${sub}</div><div class="sub-val">${fmt(ss)} spent</div>`;
+        wrap.appendChild(subRow);
       });
     }
-    list.appendChild(el);
+    list.appendChild(wrap);
   });
 }
 
