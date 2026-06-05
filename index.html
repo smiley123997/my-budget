@@ -206,10 +206,7 @@ input:focus,select:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgba(10
     <button id="install-btn">Install</button>
   </div>
 
-  <div id="cf-banner" class="cf-banner hidden">
-    <div class="cf-lbl">↩ Carry forward from last month</div>
-    <div class="cf-val" id="cf-amt"></div>
-  </div>
+  <div id="cf-banner" class="cf-banner"></div>
 
   <div class="tabs">
     <button class="tab active" onclick="switchTab('income')">Income</button>
@@ -363,13 +360,13 @@ const DEF=[
 function getMonthData(m){
   const data=load();
   if(!data.months[m]){
-    // Try to copy categories from previous month
     const[yr,mo]=m.split('-').map(Number);
     let pm=mo-1,py=yr;if(pm===0){pm=12;py--;}
     const pk=`${py}-${String(pm).padStart(2,'0')}`;
     const prevCats=data.months[pk]?data.months[pk].categories.map(c=>({...c,subs:[...(c.subs||[])]})):DEF.map((c,i)=>({...c,subs:[...c.subs],color:COLORS[i%COLORS.length]}));
-    data.months[m]={categories:prevCats,income:[],expenses:[]};
+    data.months[m]={categories:prevCats,income:[],expenses:[],carryOn:true};
   }
+  if(data.months[m].carryOn===undefined) data.months[m].carryOn=true;
   return data;
 }
 
@@ -379,11 +376,19 @@ function updateAlloc(ci,val){
   save(data);render();
 }
 
+function toggleCarryForward(){
+  const data=getMonthData(curM);
+  data.months[curM].carryOn=!data.months[curM].carryOn;
+  save(data);render();
+}
+
 function getCarryForward(m){
+  const data=getMonthData(m);
+  if(!data.months[m].carryOn) return 0;
   const[yr,mo]=m.split('-').map(Number);
   let pm=mo-1,py=yr;if(pm===0){pm=12;py--;}
   const pk=`${py}-${String(pm).padStart(2,'0')}`;
-  const data=load();if(!data.months[pk])return 0;
+  if(!data.months[pk])return 0;
   const p=data.months[pk];
   return Math.max(0,p.income.reduce((s,i)=>s+i.amount,0)-p.expenses.reduce((s,e)=>s+e.amount,0));
 }
@@ -504,8 +509,19 @@ function render(){
   document.getElementById('hdr-left').textContent=fmt(left);
 
   const cfEl=document.getElementById('cf-banner');
-  if(cf>0){cfEl.classList.remove('hidden');document.getElementById('cf-amt').textContent=fmt(cf);}
-  else cfEl.classList.add('hidden');
+  const carryOn=data.months[curM].carryOn;
+  cfEl.classList.remove('hidden');
+  cfEl.innerHTML=`
+    <div>
+      <div class="cf-lbl">↩ Carry forward from last month</div>
+      <div style="font-size:10px;color:var(--blue);margin-top:2px">${carryOn&&cf>0?fmt(cf)+' added to budget':'Not included this month'}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      ${carryOn&&cf>0?'<div class="cf-val">+'+fmt(cf)+'</div>':''}
+      <div onclick="toggleCarryForward()" style="cursor:pointer;width:40px;height:23px;border-radius:12px;background:${carryOn?'var(--purple)':'#D1D5DB'};position:relative;transition:background 0.2s;flex-shrink:0">
+        <div style="position:absolute;width:19px;height:19px;border-radius:50%;background:#fff;top:2px;left:${carryOn?'19px':'2px'};transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div>
+      </div>
+    </div>`;
 
   if(currentTab==='income')renderIncome(mo);
   if(currentTab==='budget')renderBudget(mo,avail);
